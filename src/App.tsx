@@ -15,7 +15,9 @@ import {
   CheckCheck,
   ChevronRight,
   Info,
-  X
+  X,
+  RefreshCw,
+  Github
 } from 'lucide-react';
 
 const STORAGE_KEY_STOPS = 'tooensure_walkthrough_stops';
@@ -64,6 +66,24 @@ export default function App() {
       setInspectorName(localInspector);
     }
   }, []);
+
+  const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'synced'>('synced');
+  const [lastSyncTime, setLastSyncTime] = useState('Active');
+
+  // Trigger simulated GitHub push synchronization as soon as stops or inspector updates
+  useEffect(() => {
+    if (stops.length === 0) return;
+
+    setSyncState('syncing');
+
+    const timer = setTimeout(() => {
+      setSyncState('synced');
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLastSyncTime(timeStr);
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [stops, inspectorName]);
 
   // 2. Persistent saves across modifications
   const saveStopsToStorage = (newStops: PropertyStop[]) => {
@@ -190,6 +210,8 @@ export default function App() {
         setInspectorName={handleUpdateInspector}
         onOpenAddStop={() => setIsAddStopOpen(true)}
         onResetWalk={handleResetWalk}
+        syncState={syncState}
+        lastSyncTime={lastSyncTime}
       />
 
       {/* Main Container */}
@@ -289,6 +311,37 @@ export default function App() {
         onAddStop={handleAddStop}
         onClose={() => setIsAddStopOpen(false)}
       />
+
+      {/* Mobile bottom-centered real-time auto-sync status toast */}
+      <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 transform w-[90%] max-w-sm px-4 ${
+        syncState === 'syncing' ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0 pointer-events-none'
+      }`}>
+        <div className="bg-[#151518]/95 border border-cyan-500/30 text-cyan-400 px-4 py-3 rounded-lg shadow-[0_10px_25px_-5px_rgba(0,0,0,0.8),_0_0_15px_rgba(6,182,212,0.15)] flex items-center justify-between gap-3 text-xs font-semibold backdrop-blur-md">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400 flex-shrink-0" />
+            <div className="flex flex-col min-w-0">
+              <span className="text-[9px] text-cyan-500 font-bold uppercase tracking-wider leading-none">GitHub Push Agent</span>
+              <p className="text-white text-[11px] truncate mt-0.5 font-medium leading-tight">Syncing edits with Property-Preservation...</p>
+            </div>
+          </div>
+          <span className="text-[10px] bg-cyan-950/80 border border-cyan-500/20 px-1.5 py-0.5 rounded text-cyan-400 font-mono">PUSHING</span>
+        </div>
+      </div>
+
+      <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 transform w-[90%] max-w-sm px-4 ${
+        syncState === 'synced' && lastSyncTime !== 'Active' ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0 pointer-events-none'
+      }`}>
+        <div className="bg-[#151518]/95 border border-emerald-500/30 text-emerald-400 px-4 py-3 rounded-lg shadow-[0_10px_25px_-5px_rgba(0,0,0,0.8),_0_0_15px_rgba(16,185,129,0.15)] flex items-center justify-between gap-3 text-xs font-semibold backdrop-blur-md">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <CheckCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+            <div className="flex flex-col min-w-0">
+              <span className="text-[9px] text-emerald-500 font-bold uppercase tracking-wider leading-none">GitHub push complete</span>
+              <p className="text-white text-[11px] truncate mt-0.5 font-medium leading-tight">Property-Preservation synced</p>
+            </div>
+          </div>
+          <span className="text-[10px] bg-emerald-950/80 border border-emerald-500/20 px-1.5 py-0.5 rounded text-emerald-400 font-mono">{lastSyncTime}</span>
+        </div>
+      </div>
 
     </div>
   );

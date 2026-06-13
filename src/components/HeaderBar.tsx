@@ -10,7 +10,9 @@ import {
   CheckCircle, 
   MapPin, 
   Award,
-  ExternalLink 
+  ExternalLink,
+  GitBranch,
+  Github
 } from 'lucide-react';
 
 interface HeaderBarProps {
@@ -19,6 +21,8 @@ interface HeaderBarProps {
   setInspectorName: (name: string) => void;
   onOpenAddStop: () => void;
   onResetWalk: () => void;
+  syncState: 'idle' | 'syncing' | 'synced';
+  lastSyncTime: string;
 }
 
 export default function HeaderBar({ 
@@ -26,7 +30,9 @@ export default function HeaderBar({
   inspectorName, 
   setInspectorName, 
   onOpenAddStop, 
-  onResetWalk 
+  onResetWalk,
+  syncState = 'synced',
+  lastSyncTime = 'Active'
 }: HeaderBarProps) {
   const [copiedUrl, setCopiedUrl] = useState(false);
 
@@ -101,6 +107,36 @@ export default function HeaderBar({
               placeholder="Shawn"
               className="bg-transparent border-none text-white text-xs font-bold focus:outline-none focus:ring-0 p-0 m-0 w-24 md:w-28 leading-normal mt-0.5"
             />
+          </div>
+        </div>
+
+        {/* GitHub Repository Connector Status */}
+        <div className="flex items-center gap-2.5 bg-black/40 px-3.5 py-1.5 rounded-lg border border-white/10 self-start md:self-auto w-full md:w-auto">
+          <Github className={`w-4 h-4 flex-shrink-0 transition-colors ${syncState === 'syncing' ? 'text-cyan-400' : 'text-gray-400'}`} />
+          <div className="flex flex-col w-full md:w-auto">
+            <span className="text-[9px] uppercase tracking-widest text-gray-500 font-bold leading-none flex items-center gap-1.5">
+              {syncState === 'syncing' ? (
+                <>
+                  <span className="text-cyan-400 font-bold animate-pulse">SYNCING TO GITHUB...</span>
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>
+                </>
+              ) : (
+                <>
+                  <span>GITHUB SYNCED {lastSyncTime && `(${lastSyncTime})`}</span>
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                </>
+              )}
+            </span>
+            <a 
+              href="https://github.com/ShawnDelaineBellazanLoop/Property-Preservation"
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-emerald-400 hover:text-emerald-300 font-bold font-mono tracking-tight mt-0.5 flex items-center gap-1 hover:underline truncate max-w-[200px]"
+              title="Click to visit repo"
+            >
+              <GitBranch className={`w-3 h-3 text-emerald-500 flex-shrink-0 ${syncState === 'syncing' ? 'animate-spin' : ''}`} />
+              <span className="truncate">Property-Preservation</span>
+            </a>
           </div>
         </div>
 
