@@ -8,8 +8,8 @@ export function generateTextReport(stops: PropertyStop[], identity: IdentityInje
     const totalPhotos = stops.reduce((acc, s) => acc + (s.photos?.length || 0), 0);
 
     // High-fidelity box-drawing characters
-    const dividerDouble = "═".repeat(65);
-    const dividerSingle = "─".repeat(65);
+    const dividerDouble = "=".repeat(65);
+    const dividerSingle = "-".repeat(65);
 
     let report = `${dividerDouble}\n`;
     report += `  ${identity.company.toUpperCase()} — PROPERTY WALKTHROUGH REPORT\n`;
