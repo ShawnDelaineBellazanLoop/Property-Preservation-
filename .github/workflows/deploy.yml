@@ -26,6 +26,8 @@ jobs:
         run: npm install
       - name: Build
         run: npm run build
+      - name: List dist
+        run: ls -lah dist && ls -lah dist/assets || true
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
