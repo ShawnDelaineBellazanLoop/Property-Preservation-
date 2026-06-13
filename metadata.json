@@ -1,0 +1,6 @@
+{
+  "name": "Property Walkthrough Checklist",
+  "description": "A professional and state-of-the-art property walkthrough checklist system with Google Maps navigation, photo capture, offline-first storage, dynamic report downloading, and sharing functionality designed for Tooensure LLC.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
