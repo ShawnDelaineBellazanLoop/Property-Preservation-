@@ -19,6 +19,59 @@ import {
   AlertOctagon
 } from 'lucide-react';
 
+const compressAndResizePhoto = (file: File): Promise<string> => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (typeof event.target?.result !== 'string') {
+        resolve('');
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        const maxWidth = 1024;
+        const maxHeight = 1024;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(event.target?.result as string);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        // Compress using JPEG with 0.75 quality for optimal weight/quality
+        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.75);
+        resolve(compressedDataUrl);
+      };
+      img.onerror = () => {
+        resolve(event.target?.result as string);
+      };
+      img.src = event.target.result;
+    };
+    reader.onerror = () => {
+      resolve('');
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
 interface PropertyCardProps {
   key?: string | number;
   stop: PropertyStop;
@@ -89,28 +142,37 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
   };
 
   // Handle Photo Attachment
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files) return;
+    if (!files || files.length === 0) return;
 
-    Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          const newPhoto: SelectedPhoto = {
-            id: `photo_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-            dataUrl: reader.result,
-            timestamp: formatTimestamp(new Date()),
-          };
+    const filesArray = Array.from(files) as File[];
 
-          onUpdateStop({
-            ...stop,
-            photos: [...stop.photos, newPhoto],
-          });
-        }
-      };
-      reader.readAsDataURL(file as any);
-    });
+    try {
+      const uploadPromises = filesArray.map(async (file) => {
+        const compressedDataUrl = await compressAndResizePhoto(file);
+        if (!compressedDataUrl) return null;
+
+        const newPhoto: SelectedPhoto = {
+          id: `photo_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          dataUrl: compressedDataUrl,
+          timestamp: formatTimestamp(new Date()),
+        };
+        return newPhoto;
+      });
+
+      const processedPhotos = await Promise.all(uploadPromises);
+      const validPhotos = processedPhotos.filter((p): p is SelectedPhoto => p !== null);
+
+      if (validPhotos.length > 0) {
+        onUpdateStop({
+          ...stop,
+          photos: [...stop.photos, ...validPhotos],
+        });
+      }
+    } catch (err) {
+      console.error("Error compressing/uploading photo:", err);
+    }
 
     // Clear the input value so the same file can be uploaded again
     if (e.target) {
