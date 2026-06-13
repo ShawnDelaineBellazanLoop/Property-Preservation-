@@ -73,8 +73,8 @@ export async function deleteStopPhotos(stopId: string): Promise<void> {
 
 /**
  * Returns true if a File is likely an image — checks MIME type first,
- * but falls back to file extension since iOS Safari sometimes hands
- * back an empty/octet-stream MIME type for camera captures (HEIC/HEIF).
+ * but falls back to file extension since some mobile browsers hand
+ * back an empty/octet-stream MIME type for camera captures.
  */
 export function isLikelyImage(file: File): boolean {
   if (file.type.startsWith('image/')) return true;
@@ -83,19 +83,19 @@ export function isLikelyImage(file: File): boolean {
 }
 
 /**
- * Decodes a source (data URL or Blob) into an HTMLImageElement or ImageBitmap-backed
- * canvas-drawable source. Tries createImageBitmap first (handles HEIC on Safari/iOS),
+ * Decodes a File into a canvas-drawable source + dimensions.
+ * Tries createImageBitmap first (handles HEIC on Safari/iOS and is
+ * generally more memory-efficient for large camera photos on Android),
  * falls back to <img> + data URL.
  */
-async function decodeToDrawable(file: File): Promise<{ source: ImageBitmap | HTMLImageElement; width: number; height: number; revoke?: () => void }> {
-  // Try createImageBitmap first — on iOS Safari this can decode HEIC camera captures
-  // that <img src> cannot.
+async function decodeToDrawable(file: File): Promise<{ source: ImageBitmap | HTMLImageElement; width: number; height: number }> {
   if (typeof createImageBitmap === 'function') {
     try {
       const bitmap = await createImageBitmap(file);
+      console.log('[photo] decoded via createImageBitmap', bitmap.width, bitmap.height);
       return { source: bitmap, width: bitmap.width, height: bitmap.height };
-    } catch {
-      // fall through to <img> decoding
+    } catch (err) {
+      console.warn('[photo] createImageBitmap failed, falling back to <img>', err);
     }
   }
 
@@ -113,11 +113,18 @@ async function decodeToDrawable(file: File): Promise<{ source: ImageBitmap | HTM
     image.src = dataUrl;
   });
 
+  console.log('[photo] decoded via <img>', img.naturalWidth, img.naturalHeight);
   return { source: img, width: img.naturalWidth || img.width, height: img.naturalHeight || img.height };
 }
 
+// Many mobile browsers cap canvas dimensions around 4096px per side or
+// ~16-32 megapixels total. Camera photos (especially Samsung, often
+// 12-108MP) can exceed this, causing toDataURL to return "data:," or throw.
+const MAX_CANVAS_DIM = 4096;
+
 function drawToCanvas(source: ImageBitmap | HTMLImageElement, srcW: number, srcH: number, maxDim: number, quality: number): string {
-  const ratio = Math.min(1, maxDim / Math.max(srcW, srcH));
+  const cap = Math.min(maxDim, MAX_CANVAS_DIM);
+  const ratio = Math.min(1, cap / Math.max(srcW, srcH));
   const w = Math.max(1, Math.round(srcW * ratio));
   const h = Math.max(1, Math.round(srcH * ratio));
   const canvas = document.createElement('canvas');
@@ -126,13 +133,19 @@ function drawToCanvas(source: ImageBitmap | HTMLImageElement, srcW: number, srcH
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas context unavailable');
   ctx.drawImage(source, 0, 0, w, h);
-  return canvas.toDataURL('image/jpeg', quality);
+  const result = canvas.toDataURL('image/jpeg', quality);
+  if (!result || result === 'data:,' || result.length < 100) {
+    throw new Error(`toDataURL produced invalid output (canvas ${w}x${h}, result length ${result?.length ?? 0})`);
+  }
+  return result;
 }
 
 export async function compressPhoto(file: File): Promise<PhotoEntry> {
-  const MAX_DIM = 1200;
+  console.log('[photo] compressPhoto start', { name: file.name, type: file.type, size: file.size });
+
+  const MAX_DIM = 1600;
   const THUMB_DIM = 200;
-  const QUALITY = 0.78;
+  const QUALITY = 0.75;
 
   const { source, width, height } = await decodeToDrawable(file);
 
@@ -141,9 +154,14 @@ export async function compressPhoto(file: File): Promise<PhotoEntry> {
   try {
     dataUrl = drawToCanvas(source, width, height, MAX_DIM, QUALITY);
     thumb = drawToCanvas(source, width, height, THUMB_DIM, 0.65);
+  } catch (err) {
+    console.error('[photo] drawToCanvas failed', err);
+    throw err;
   } finally {
     if ('close' in source && typeof source.close === 'function') source.close();
   }
+
+  console.log('[photo] compressPhoto done', { dataUrlLen: dataUrl.length, thumbLen: thumb.length });
 
   return {
     id: `photo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,

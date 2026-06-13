@@ -10,10 +10,11 @@ interface Props {
 }
 
 // Visually hide an <input type="file"> without using display:none —
-// iOS Safari can refuse to open the camera picker for inputs that are
-// display:none (or triggered only via a programmatic .click() on a ref).
-// Keeping the input on-screen (just visually invisible) and wrapping it
-// in a <label> is the reliable cross-browser pattern.
+// some mobile browsers (iOS Safari, Samsung Internet) can fail to fire
+// the camera/file picker reliably for inputs that are display:none or
+// triggered only via a programmatic .click() on a ref. Keeping the input
+// on-screen (just visually invisible) and wrapping it in a <label> is the
+// reliable cross-browser pattern.
 const hiddenInputStyle: React.CSSProperties = {
   position: 'absolute',
   width: '1px',
@@ -30,20 +31,31 @@ export default function PhotoGrid({ photos, onPhotosChange, toast }: Props) {
   const [processing, setProcessing] = useState(false);
   const [lightbox, setLightbox] = useState<number | null>(null);
 
-  const handleFiles = async (files: FileList | null, inputEl?: HTMLInputElement | null) => {
-    if (!files || !files.length) return;
+  const handleFiles = async (files: FileList | null, inputEl?: HTMLInputElement | null, source?: string) => {
+    console.log('[photo] onChange fired', { source, fileCount: files?.length ?? 0 });
+    if (!files || !files.length) {
+      toast('No file selected', 'info');
+      return;
+    }
     setProcessing(true);
     try {
       const newPhotos: PhotoEntry[] = [];
       let failed = 0;
+      let lastError = '';
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        if (!isLikelyImage(file)) continue;
+        console.log('[photo] processing file', { name: file.name, type: file.type, size: file.size });
+        if (!isLikelyImage(file)) {
+          console.warn('[photo] skipped — not recognized as image', file.type, file.name);
+          continue;
+        }
         try {
           const entry = await compressPhoto(file);
           newPhotos.push(entry);
-        } catch {
+        } catch (err) {
           failed++;
+          lastError = err instanceof Error ? err.message : String(err);
+          console.error('[photo] compressPhoto failed', err);
         }
       }
       if (newPhotos.length) {
@@ -51,13 +63,14 @@ export default function PhotoGrid({ photos, onPhotosChange, toast }: Props) {
         toast(`${newPhotos.length} photo${newPhotos.length > 1 ? 's' : ''} added`, 'success');
       }
       if (failed) {
-        toast(`${failed} photo${failed > 1 ? 's' : ''} couldn't be processed`, 'error');
+        toast(`${failed} photo${failed > 1 ? 's' : ''} failed: ${lastError}`, 'error');
       }
       if (!newPhotos.length && !failed) {
-        toast('No image found', 'error');
+        toast('No image found in selection', 'error');
       }
-    } catch {
-      toast('Photo processing failed', 'error');
+    } catch (err) {
+      console.error('[photo] handleFiles top-level error', err);
+      toast(`Photo processing failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
     } finally {
       setProcessing(false);
       if (inputEl) inputEl.value = '';
@@ -102,7 +115,7 @@ export default function PhotoGrid({ photos, onPhotosChange, toast }: Props) {
             capture="environment"
             style={hiddenInputStyle}
             disabled={processing}
-            onChange={e => handleFiles(e.target.files, e.target)}
+            onChange={e => handleFiles(e.target.files, e.target, 'camera')}
           />
         </label>
 
@@ -119,7 +132,7 @@ export default function PhotoGrid({ photos, onPhotosChange, toast }: Props) {
             multiple
             style={hiddenInputStyle}
             disabled={processing}
-            onChange={e => handleFiles(e.target.files, e.target)}
+            onChange={e => handleFiles(e.target.files, e.target, 'gallery')}
           />
         </label>
       </div>
