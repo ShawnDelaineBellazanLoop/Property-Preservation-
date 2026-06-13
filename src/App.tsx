@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { PropertyStop } from './types';
 import { makeChecklist } from './lib/checklist';
+import { seedStops } from './seedData';
 import { savePhotos, loadPhotos, deleteStopPhotos } from './lib/photoStorage';
 import { decodeShareState } from './lib/exportUtils';
 import Header from './components/Header';
@@ -55,7 +56,11 @@ export default function App() {
           setPhotosLoaded(true);
         });
       } catch { setPhotosLoaded(true); }
-    } else { setPhotosLoaded(true); }
+    } else {
+      // First run — no saved data yet, pre-populate with seed stops.
+      setStops(seedStops);
+      setPhotosLoaded(true);
+    }
   }, []);
 
   useEffect(() => {
