@@ -4,6 +4,7 @@ import { makeChecklist } from './lib/checklist';
 import { seedStops } from './seedData';
 import { savePhotos, loadPhotos, deleteStopPhotos } from './lib/photoStorage';
 import { decodeShareState } from './lib/exportUtils';
+import { generateTextReport } from './lib/reportGenerator';
 import Header from './components/Header';
 import StopCard from './components/StopCard';
 import AddStopModal from './components/AddStopModal';
@@ -21,7 +22,7 @@ function stopsWithoutPhotos(stops: PropertyStop[]): PropertyStop[] {
 export default function App() {
     const [stops, setStops] = useState<PropertyStop[]>([]);
 
-    // PMCRO Identity Injection
+    // Identity Injection
     const [identity, setIdentity] = useState<IdentityInjection>({
         inspector_name: 'Shawn',
         role: 'A10 CR (Field Operator)',
@@ -51,7 +52,6 @@ export default function App() {
             }
         }
 
-        // Load saved identity
         const savedId = localStorage.getItem(IDENTITY_KEY);
         if (savedId) setIdentity(JSON.parse(savedId));
 
@@ -79,13 +79,9 @@ export default function App() {
         setSyncState('saving');
 
         syncTimer.current = setTimeout(async () => {
-            // Save Trail Metadata
             localStorage.setItem(LS_KEY, JSON.stringify(stopsWithoutPhotos(stops)));
-            // Save Identity Injection
             localStorage.setItem(IDENTITY_KEY, JSON.stringify(identity));
-
             await Promise.all(stops.map(s => savePhotos(s.id, s.photos)));
-
             setSyncState('saved');
             setLastSaved(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
             setTimeout(() => setSyncState('idle'), 4000);
@@ -97,7 +93,7 @@ export default function App() {
             id: `stop-${Date.now()}`,
             address, workOrderId,
             status: 'pending',
-            phase: 'PLAN', // Default to planning phase
+            phase: 'PLAN',
             checklist: makeChecklist(),
             notes: [], photos: [],
             startedAt: null, completedAt: null,
@@ -113,26 +109,36 @@ export default function App() {
     }, []);
 
     const deleteStop = useCallback(async (id: string) => {
+        if (!confirm("Remove this stop?")) return;
         await deleteStopPhotos(id);
         setStops(prev => prev.filter(s => s.id !== id));
         toast('Frame removed', 'info');
     }, [toast]);
 
     const resetWalk = useCallback(async () => {
-        if (!confirm("Wipe all data?")) return;
+        if (!confirm("CRITICAL: Wipe all data and photos?")) return;
         await Promise.all(stops.map(s => deleteStopPhotos(s.id)));
         localStorage.removeItem(LS_KEY);
         setStops([]);
-    }, [stops]);
+        toast('Data wiped', 'info');
+    }, [stops, toast]);
 
-    // PMCRO Cognitive Asset Export
+    // ACTION: High-Fidelity Text Report
+    const downloadTextReport = useCallback(() => {
+        const reportText = generateTextReport(stops, identity);
+        const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Report-${identity.inspector_name}-${new Date().toISOString().split('T')[0]}.txt`;
+        a.click();
+        toast('Text Report Downloaded', 'success', '📄');
+    }, [stops, identity, toast]);
+
+    // ACTION: JSON Cognitive Asset
     const exportAsset = useCallback(() => {
         const asset: TemporalOrchestrator = {
-            runtime: {
-                version: "2.0.0",
-                trail_id: `TRAIL-${Date.now()}`,
-                date: new Date().toISOString()
-            },
+            runtime: { version: "2.0.0", trail_id: `TRAIL-${Date.now()}`, date: new Date().toISOString() },
             identity,
             frames: stops
         };
@@ -140,16 +146,16 @@ export default function App() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `CognitiveAsset-${identity.inspector_name}.json`;
+        a.download = `Asset-${identity.inspector_name}.json`;
         a.click();
-        toast('Asset Exported', 'success', '💾');
+        toast('Cognitive Asset Exported', 'success', '💾');
     }, [identity, stops, toast]);
 
     if (!photosLoaded) return (
         <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--dark)' }}>
             <div className="flex flex-col items-center gap-3">
                 <div className="w-8 h-8 rounded-lg animate-pulse" style={{ background: 'var(--green-dim)', border: '1px solid var(--green-border)' }} />
-                <p className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>Loading Trail…</p>
+                <p className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>Syncing Trail...</p>
             </div>
         </div>
     );
@@ -164,7 +170,8 @@ export default function App() {
                 lastSaved={lastSaved}
                 onAddStop={() => setShowAddModal(true)}
                 onReset={resetWalk}
-                onExportAsset={exportAsset} // Pass the new export feature to header
+                onExportAsset={exportAsset}
+                onDownloadReport={downloadTextReport}
                 toast={toast}
             />
             <main className="max-w-3xl mx-auto px-4 py-6 flex flex-col gap-4">
