@@ -6,6 +6,7 @@ import {
   MapPin, 
   Clock, 
   Camera, 
+  Image,
   Trash2, 
   Layers, 
   FileEdit, 
@@ -56,7 +57,6 @@ const compressAndResizePhoto = (file: File): Promise<string> => {
         }
 
         ctx.drawImage(img, 0, 0, width, height);
-        // Compress using JPEG with 0.75 quality for optimal weight/quality
         const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.75);
         resolve(compressedDataUrl);
       };
@@ -80,15 +80,15 @@ interface PropertyCardProps {
 }
 
 export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: PropertyCardProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Two separate refs: one for camera, one for gallery
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
-  // Compute item counts
   const totalItems = stop.items.length;
   const checkedItems = stop.items.filter(i => i.checked).length;
   const completionPercentage = totalItems > 0 ? Math.round((checkedItems / totalItems) * 100) : 0;
   const isCompleted = completionPercentage === 100;
 
-  // Toggle item status
   const handleToggleItem = (itemId: string) => {
     const updatedItems = stop.items.map(item => {
       if (item.id === itemId) {
@@ -107,41 +107,25 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
     });
   };
 
-  // Update Notes
   const handleNotesChange = (text: string) => {
-    onUpdateStop({
-      ...stop,
-      notes: text,
-    });
+    onUpdateStop({ ...stop, notes: text });
   };
 
-  // Inject Timestamp into Notes
   const handleInsertTimestamp = () => {
     const now = new Date();
     const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
     const formattedStamp = `[${timeStr}] `;
-    
-    // Append timestamp at the end or current position
     const currentNotes = stop.notes || '';
-    const updatedNotes = currentNotes.trim() 
+    const updatedNotes = currentNotes.trim()
       ? `${currentNotes}\n${formattedStamp}`
       : `${formattedStamp}`;
-
-    onUpdateStop({
-      ...stop,
-      notes: updatedNotes,
-    });
+    onUpdateStop({ ...stop, notes: updatedNotes });
   };
 
-  // Clear Notes
   const handleClearNotes = () => {
-    onUpdateStop({
-      ...stop,
-      notes: '',
-    });
+    onUpdateStop({ ...stop, notes: '' });
   };
 
-  // Handle Photo Attachment
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -174,22 +158,16 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
       console.error("Error compressing/uploading photo:", err);
     }
 
-    // Clear the input value so the same file can be uploaded again
     if (e.target) {
       e.target.value = '';
     }
   };
 
-  // Handle Photo Removal
   const handleRemovePhoto = (photoId: string) => {
     const updatedPhotos = stop.photos.filter((p) => p.id !== photoId);
-    onUpdateStop({
-      ...stop,
-      photos: updatedPhotos,
-    });
+    onUpdateStop({ ...stop, photos: updatedPhotos });
   };
 
-  // Group items by category.
   const categories = {
     occupancy: {
       title: 'Occupancy Check Indicators',
@@ -217,7 +195,7 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
           : 'border-white/10 hover:border-white/15'
     }`}>
       
-      {/* Top Banner (Priority specific colors) */}
+      {/* Top Banner */}
       <div className={`h-1 w-full ${
         isCompleted 
           ? 'bg-emerald-500' 
@@ -226,14 +204,12 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
             : 'bg-emerald-500/30'
       }`} />
 
-      {/* Card Header Body */}
+      {/* Card Header */}
       <div className="p-5 md:p-6 pb-4 border-b border-white/10 bg-[#0f0f12]">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
           
-          {/* Main Info */}
           <div>
             <div className="flex flex-wrap items-center gap-2 mb-2">
-              {/* Priority indicator */}
               <span className={`inline-flex items-center gap-1 text-[10px] uppercase font-bold tracking-widest px-2.5 py-1 rounded italic ${
                 stop.priority === 'high' 
                   ? 'bg-red-500/10 text-red-500 border border-red-500/20' 
@@ -242,19 +218,16 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
                 {stop.priority === 'high' ? '🔥 Urgent Action' : '⚡ Walk Stop'}
               </span>
 
-              {/* Tag indicator */}
               <span className="text-[10px] uppercase font-bold tracking-widest px-2.5 py-1 rounded bg-white/5 text-gray-400 border border-white/5">
                 🏷️ {stop.tag}
               </span>
 
-              {/* Delinquency cash */}
               {stop.delinquentAmount && stop.delinquentAmount > 0 ? (
                 <span className="text-[10px] font-mono font-bold px-2 py-1 bg-red-500/10 text-red-400 border border-red-500/15 rounded italic">
                   Amount Due: {formatCurrency(stop.delinquentAmount)}
                 </span>
               ) : null}
 
-              {/* Inspector info */}
               <span className="text-[10px] text-gray-500 flex items-center gap-1 ml-1 font-semibold uppercase tracking-wider">
                 Inspector: <span className="text-gray-300">{stop.inspectorName || 'Shawn'}</span>
               </span>
@@ -273,10 +246,8 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
             </p>
           </div>
 
-          {/* Maps / Directions and Delete */}
           <div className="flex items-center gap-2 self-start md:self-auto w-full md:w-auto justify-between md:justify-end">
             <div className="flex gap-2 w-full md:w-auto">
-              {/* Google Maps Button */}
               <a
                 href={getGoogleMapsUrl(stop.address, stop.cityStateZip)}
                 target="_blank"
@@ -286,7 +257,6 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
                 <span className="text-blue-400 font-extrabold font-mono">G</span> Google Maps
               </a>
 
-              {/* Apple Maps direct scheme link (perfect for iPhone in-the-field agents) */}
               <a
                 href={getAppleMapsUrl(stop.address, stop.cityStateZip)}
                 target="_blank"
@@ -298,7 +268,6 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
               </a>
             </div>
 
-            {/* Delete button */}
             <button
               id={`delete-stop-${stop.id}`}
               onClick={() => {
@@ -315,7 +284,7 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
 
         </div>
 
-        {/* Progress bar info for the Stop */}
+        {/* Progress bar */}
         <div className="mt-5">
           <div className="flex justify-between items-center text-xs mb-1.5">
             <span className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-bold">Walk Stop Progress</span>
@@ -343,10 +312,10 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
         </div>
       </div>
 
-      {/* Main Checklist Body */}
+      {/* Main Body */}
       <div className="p-5 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 bg-[#0a0a0b]/40">
         
-        {/* Checklist Rows Grid - Left Column */}
+        {/* Checklist - Left */}
         <div className="lg:col-span-8 space-y-4">
           {(Object.keys(categories) as Array<keyof typeof categories>).map((catKey) => {
             const cat = categories[catKey];
@@ -356,7 +325,6 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
             
             return (
               <div key={catKey} className="bg-[#151518] p-5 rounded-xl border border-white/5">
-                {/* Category Header with percentage */}
                 <div className="flex items-center justify-between mb-4 border-b border-white/5 pb-2">
                   <h4 className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-bold">
                     {cat.title}
@@ -366,7 +334,6 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
                   </span>
                 </div>
 
-                {/* Checklist Rows List */}
                 <div className="space-y-3">
                   {cat.items.map((item) => (
                     <div
@@ -374,7 +341,6 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
                       onClick={() => handleToggleItem(item.id)}
                       className="flex items-center gap-3 cursor-pointer group no-select"
                     >
-                      {/* Interactive Custom Checkbox */}
                       <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
                         item.checked 
                           ? 'border-emerald-555 bg-emerald-500 text-black'
@@ -387,7 +353,6 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
                         )}
                       </div>
 
-                      {/* Item label */}
                       <span className={`text-sm tracking-wide transition-colors ${
                         item.checked ? 'text-gray-500 line-through' : 'text-gray-200'
                       }`}>
@@ -401,10 +366,10 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
           })}
         </div>
 
-        {/* Field Notes & Photo Capture - Right Column */}
+        {/* Notes & Photos - Right */}
         <div className="lg:col-span-4 space-y-6">
           
-          {/* Notes Card Box */}
+          {/* Notes */}
           <div className="bg-[#151518] rounded-xl border border-white/5 p-5 flex flex-col h-[280px]">
             <div className="flex items-center justify-between mb-4 pb-2 border-b border-white/5">
               <span className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-bold">
@@ -412,13 +377,9 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
               </span>
               
               <div className="flex items-center gap-1.5">
-                {/* Timestamp capture tool */}
                 <button
                   id={`timestamp-btn-${stop.id}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleInsertTimestamp();
-                  }}
+                  onClick={(e) => { e.stopPropagation(); handleInsertTimestamp(); }}
                   className="text-[10px] font-bold text-emerald-500 hover:text-emerald-420 uppercase tracking-tighter cursor-pointer"
                   title="Drop current time into observations text"
                 >
@@ -427,13 +388,9 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
 
                 <span className="text-gray-600">|</span>
 
-                {/* Clear tool */}
                 <button
                   id={`clear-notes-btn-${stop.id}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleClearNotes();
-                  }}
+                  onClick={(e) => { e.stopPropagation(); handleClearNotes(); }}
                   className="text-[10px] font-bold text-gray-500 hover:text-gray-300 uppercase tracking-tighter cursor-pointer"
                 >
                   Clear
@@ -450,28 +407,38 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
             />
           </div>
 
-          {/* Photo Capture Card Box */}
+          {/* Photos */}
           <div className="bg-[#151518] rounded-xl border border-white/5 p-5">
             <div className="flex items-center justify-between mb-4 border-b border-white/5 pb-2">
               <span className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-bold">
                 Walk Photos ({stop.photos.length})
               </span>
-              
-              {/* Trigger device camera or photos picker */}
+            </div>
+
+            {/* Two buttons: Camera + Gallery */}
+            <div className="flex gap-2 mb-4">
               <button
-                id={`upload-photo-btn-${stop.id}`}
-                onClick={() => fileInputRef.current?.click()}
-                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-black text-[10px] uppercase font-bold tracking-wider transition-colors flex items-center gap-1 cursor-pointer rounded"
+                id={`camera-btn-${stop.id}`}
+                onClick={() => cameraInputRef.current?.click()}
+                className="flex-1 px-2.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-black text-[10px] uppercase font-bold tracking-wider transition-colors flex items-center justify-center gap-1.5 cursor-pointer rounded"
               >
-                <Camera className="w-3.5 h-3.5" /> Capture Photo
+                <Camera className="w-3.5 h-3.5" /> Camera
+              </button>
+
+              <button
+                id={`gallery-btn-${stop.id}`}
+                onClick={() => galleryInputRef.current?.click()}
+                className="flex-1 px-2.5 py-2 bg-white/5 hover:bg-white/10 text-gray-300 text-[10px] uppercase font-bold tracking-wider transition-colors flex items-center justify-center gap-1.5 cursor-pointer rounded border border-white/10"
+              >
+                <Image className="w-3.5 h-3.5" /> Gallery
               </button>
             </div>
 
-            {/* Hidden native input for mobile cameras */}
+            {/* Camera input — forces live camera on mobile */}
             <input
-              id={`photo-file-input-${stop.id}`}
+              id={`camera-file-input-${stop.id}`}
               type="file"
-              ref={fileInputRef}
+              ref={cameraInputRef}
               accept="image/*"
               capture="environment"
               multiple
@@ -479,7 +446,18 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
               className="hidden"
             />
 
-            {/* Photo Thumbnails list */}
+            {/* Gallery input — opens photo picker, no capture restriction */}
+            <input
+              id={`gallery-file-input-${stop.id}`}
+              type="file"
+              ref={galleryInputRef}
+              accept="image/*"
+              multiple
+              onChange={handlePhotoUpload}
+              className="hidden"
+            />
+
+            {/* Thumbnails */}
             {stop.photos.length > 0 ? (
               <div className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1">
                 {stop.photos.map((photo) => (
@@ -491,20 +469,15 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
                       className="w-full h-full object-cover"
                     />
                     
-                    {/* Hover detail background */}
                     <div className="absolute inset-0 bg-[#0a0a0b]/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-2 pointer-events-none">
                       <span className="text-[8px] font-mono text-gray-400 truncate">
                         {photo.timestamp.split(',')[1]}
                       </span>
                     </div>
 
-                    {/* Delete button overlying image */}
                     <button
                       id={`delete-photo-${photo.id}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRemovePhoto(photo.id);
-                      }}
+                      onClick={(e) => { e.stopPropagation(); handleRemovePhoto(photo.id); }}
                       className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center cursor-pointer border border-white/10"
                       title="Delete photo"
                     >
@@ -514,10 +487,10 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
                 ))}
               </div>
             ) : (
-              <div className="border border-dashed border-white/10 rounded-xl p-8 text-center flex flex-col items-center justify-center">
+              <div className="border border-dashed border-white/10 rounded-xl p-6 text-center flex flex-col items-center justify-center">
                 <Camera className="w-8 h-8 text-gray-600 mb-2" />
                 <p className="text-[11px] text-gray-500 leading-normal max-w-[180px]">
-                  Take visual photos of meters, delinquency legal postings, locks, or damages.
+                  Use Camera for live shots or Gallery to attach existing photos.
                 </p>
               </div>
             )}
@@ -531,14 +504,9 @@ export default function PropertyCard({ stop, onUpdateStop, onDeleteStop }: Prope
   );
 }
 
-// Minimalist fallback Apple Logo SVG
 function AppleLogo({ className }: { className?: string }) {
   return (
-    <svg 
-      className={className}
-      viewBox="0 0 24 24" 
-      fill="currentColor" 
-    >
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
       <path d="M18.71,19.5C17.88,20.74,17,21.95,15.66,22c-1.31,0-1.73-.8-3.23-.8s-2,.77-3.22.8c-1.37,0-2.32-1.27-3.15-2.47C4.38,17,3.12,12.31,4.87,9.27c.87-1.5,2.42-2.45,4.12-2.48,1.29,0,2.5,1,3.29,1C13.07,7.74,14.53,6.6,16,6.75A4.61,4.61,0,0,1,19.64,8.83a4.52,4.52,0,0,0-2.18,3.83A4.57,4.57,0,0,0,20.25,16,11.23,11.23,0,0,1,18.71,19.5M15.91,4.5a4.34,4.34,0,0,0,1-3,4.42,4.42,0,0,0-2.88,1.48,4.24,4.24,0,0,0-1,3A3.72,3.72,0,0,0,15.91,4.5Z" />
     </svg>
   );
