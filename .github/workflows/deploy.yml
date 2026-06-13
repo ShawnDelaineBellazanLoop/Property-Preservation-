@@ -24,8 +24,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
+          node-version: 24
 
       - name: Install dependencies
         run: npm install
@@ -33,8 +32,6 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          # Gemini key is optional for the static checklist app.
-          # If you want AI features live, add GEMINI_API_KEY as a repo secret.
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           VITE_GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
