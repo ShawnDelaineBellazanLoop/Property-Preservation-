@@ -29,8 +29,10 @@ export default function PhotoGrid({ photos, onPhotosChange, toast }: Props) {
       if (newPhotos.length) {
         onPhotosChange([...photos, ...newPhotos]);
         toast(`${newPhotos.length} photo${newPhotos.length > 1 ? 's' : ''} added`, 'success');
+      } else {
+        toast('No image found', 'error');
       }
-    } catch (err) {
+    } catch {
       toast('Photo processing failed', 'error');
     } finally {
       setProcessing(false);
@@ -63,6 +65,7 @@ export default function PhotoGrid({ photos, onPhotosChange, toast }: Props) {
       {/* Upload buttons */}
       <div className="flex gap-2 mb-3">
         <button
+          type="button"
           onClick={() => cameraRef.current?.click()}
           disabled={processing}
           className="btn btn-ghost text-xs flex-1 disabled:opacity-50"
@@ -71,6 +74,7 @@ export default function PhotoGrid({ photos, onPhotosChange, toast }: Props) {
           Camera
         </button>
         <button
+          type="button"
           onClick={() => galleryRef.current?.click()}
           disabled={processing}
           className="btn btn-ghost text-xs flex-1 disabled:opacity-50"
@@ -79,8 +83,26 @@ export default function PhotoGrid({ photos, onPhotosChange, toast }: Props) {
           Gallery
         </button>
 
-        <input ref={cameraRef} type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={e => handleFiles(e.target.files)} />
-        <input ref={galleryRef} type="file" accept="image/*" multiple className="hidden" onChange={e => handleFiles(e.target.files)} />
+        {/* Camera input: single-shot capture. `multiple` is intentionally omitted —
+            combined with `capture`, it causes many mobile browsers (esp. iOS Safari)
+            to silently fall back to the gallery picker or do nothing. */}
+        <input
+          ref={cameraRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={e => handleFiles(e.target.files)}
+        />
+        {/* Gallery input: allows multi-select, no capture attribute */}
+        <input
+          ref={galleryRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={e => handleFiles(e.target.files)}
+        />
       </div>
 
       {/* Processing placeholders */}
