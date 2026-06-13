@@ -143,9 +143,15 @@ function drawToCanvas(source: ImageBitmap | HTMLImageElement, srcW: number, srcH
 export async function compressPhoto(file: File): Promise<PhotoEntry> {
   console.log('[photo] compressPhoto start', { name: file.name, type: file.type, size: file.size });
 
-  const MAX_DIM = 1600;
-  const THUMB_DIM = 200;
-  const QUALITY = 0.75;
+  // Kept deliberately small — every photo lives as a base64 dataUrl in
+  // React state + localStorage for ALL stops simultaneously. Large photos
+  // here increase memory pressure, which makes Android more likely to
+  // kill the browser tab when the camera app opens (losing the capture
+  // entirely on return). 1024px @ 0.7 JPEG is plenty for documentation
+  // photos and keeps each photo roughly 80-150KB.
+  const MAX_DIM = 1024;
+  const THUMB_DIM = 160;
+  const QUALITY = 0.7;
 
   const { source, width, height } = await decodeToDrawable(file);
 

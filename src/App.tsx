@@ -27,6 +27,12 @@ export default function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const { toasts, toast, dismiss } = useToast();
   const syncTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Keep latest state available to the visibility/pagehide flush below
+  // without re-binding the listener on every change.
+  const stopsRef = useRef(stops);
+  const inspectorRef = useRef(inspector);
+  stopsRef.current = stops;
+  inspectorRef.current = inspector;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -76,6 +82,44 @@ export default function App() {
       setTimeout(() => setSyncState('idle'), 4000);
     }, 600);
   }, [stops, inspector, photosLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Force-flush any pending save to localStorage/IndexedDB the instant the
+  // page is backgrounded — e.g. the moment the native camera app opens.
+  // Android can reclaim a backgrounded tab under memory pressure, which
+  // discards anything only held in React state. Flushing here means that
+  // if the tab does get killed and restarted on return from the camera,
+  // notes/checklist progress up to that point survive even though the
+  // in-flight camera capture itself may still be lost by the OS.
+  useEffect(() => {
+    const flush = () => {
+      if (!photosLoaded) return;
+      clearTimeout(syncTimer.current);
+      const currentStops = stopsRef.current;
+      const currentInspector = inspectorRef.current;
+      try {
+        localStorage.setItem(LS_KEY, JSON.stringify(stopsWithoutPhotos(currentStops)));
+        localStorage.setItem(INSPECTOR_KEY, currentInspector);
+      } catch (err) {
+        console.error('[flush] localStorage write failed', err);
+      }
+      // Fire-and-forget — IndexedDB writes are async and may not finish
+      // before the tab is suspended, but this gives them the best chance.
+      Promise.all(currentStops.map(s => savePhotos(s.id, s.photos))).catch(err =>
+        console.error('[flush] savePhotos failed', err)
+      );
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', flush);
+    };
+  }, [photosLoaded]);
 
   const addStop = useCallback((address: string, workOrderId: string) => {
     const newStop: PropertyStop = {

@@ -1,237 +1,196 @@
-import { useState } from 'react';
-import { PhotoEntry } from '../types';
-import { compressPhoto, isLikelyImage } from '../lib/photoStorage';
-import { Camera, Image, Trash2, Loader2, Maximize2, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Camera, Image as ImageIcon, X, Trash2 } from 'lucide-react';
+import CameraCapture from './CameraCapture';
 
-interface Props {
-  photos: PhotoEntry[];
-  onPhotosChange: (photos: PhotoEntry[]) => void;
-  toast: (msg: string, type?: 'success' | 'error' | 'info') => void;
+// Adjust this interface if your app uses a different structure for photos
+export interface PhotoEntry {
+    id: string;
+    dataUrl: string;
+    timestamp: number;
 }
 
-// Visually hide an <input type="file"> without using display:none —
-// some mobile browsers (iOS Safari, Samsung Internet) can fail to fire
-// the camera/file picker reliably for inputs that are display:none or
-// triggered only via a programmatic .click() on a ref. Keeping the input
-// on-screen (just visually invisible) and wrapping it in a <label> is the
-// reliable cross-browser pattern.
-const hiddenInputStyle: React.CSSProperties = {
-  position: 'absolute',
-  width: '1px',
-  height: '1px',
-  padding: 0,
-  margin: '-1px',
-  overflow: 'hidden',
-  clip: 'rect(0,0,0,0)',
-  whiteSpace: 'nowrap',
-  border: 0,
-};
+interface PhotoGridProps {
+    photos: PhotoEntry[];
+    onAddPhoto: (photo: PhotoEntry) => void;
+    onRemovePhoto: (id: string) => void;
+}
 
-export default function PhotoGrid({ photos, onPhotosChange, toast }: Props) {
-  const [processing, setProcessing] = useState(false);
-  const [lightbox, setLightbox] = useState<number | null>(null);
+export default function PhotoGrid({ photos, onAddPhoto, onRemovePhoto }: PhotoGridProps) {
+    const [showCamera, setShowCamera] = useState(false);
+    const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFiles = async (files: FileList | null, inputEl?: HTMLInputElement | null, source?: string) => {
-    console.log('[photo] onChange fired', { source, fileCount: files?.length ?? 0 });
-    if (!files || !files.length) {
-      toast('No file selected', 'info');
-      return;
-    }
-    setProcessing(true);
-    try {
-      const newPhotos: PhotoEntry[] = [];
-      let failed = 0;
-      let lastError = '';
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        console.log('[photo] processing file', { name: file.name, type: file.type, size: file.size });
-        if (!isLikelyImage(file)) {
-          console.warn('[photo] skipped — not recognized as image', file.type, file.name);
-          continue;
-        }
+    // In-browser compression to prevent Android out-of-memory crashes
+    const compressPhoto = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = (event) => {
+                const img = new Image();
+                img.src = event.target?.result as string;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    let { width, height } = img;
+
+                    // Downscale to 1024px maximum dimension
+                    const MAX_DIM = 1024;
+
+                    if (width > height) {
+                        if (width > MAX_DIM) {
+                            height *= MAX_DIM / width;
+                            width = MAX_DIM;
+                        }
+                    } else {
+                        if (height > MAX_DIM) {
+                            width *= MAX_DIM / height;
+                            height = MAX_DIM;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+
+                    if (!ctx) {
+                        reject(new Error("Failed to get canvas context"));
+                        return;
+                    }
+
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    // Compress to JPEG at 70% quality (0.7)
+                    resolve(canvas.toDataURL('image/jpeg', 0.7));
+                };
+                img.onerror = (error) => reject(error);
+            };
+            reader.onerror = (error) => reject(error);
+        });
+    };
+
+    const processAndAddFile = async (file: File) => {
         try {
-          const entry = await compressPhoto(file);
-          newPhotos.push(entry);
-        } catch (err) {
-          failed++;
-          lastError = err instanceof Error ? err.message : String(err);
-          console.error('[photo] compressPhoto failed', err);
+            const compressedDataUrl = await compressPhoto(file);
+            onAddPhoto({
+                id: crypto.randomUUID(),
+                dataUrl: compressedDataUrl,
+                timestamp: Date.now()
+            });
+        } catch (error) {
+            console.error("Error compressing photo:", error);
+            alert("Failed to process photo.");
         }
-      }
-      if (newPhotos.length) {
-        onPhotosChange([...photos, ...newPhotos]);
-        toast(`${newPhotos.length} photo${newPhotos.length > 1 ? 's' : ''} added`, 'success');
-      }
-      if (failed) {
-        toast(`${failed} photo${failed > 1 ? 's' : ''} failed: ${lastError}`, 'error');
-      }
-      if (!newPhotos.length && !failed) {
-        toast('No image found in selection', 'error');
-      }
-    } catch (err) {
-      console.error('[photo] handleFiles top-level error', err);
-      toast(`Photo processing failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
-    } finally {
-      setProcessing(false);
-      if (inputEl) inputEl.value = '';
-    }
-  };
+    };
 
-  const deletePhoto = (id: string, closeLightbox = false) => {
-    const remaining = photos.filter(p => p.id !== id);
-    onPhotosChange(remaining);
-    if (closeLightbox || remaining.length === 0) {
-      setLightbox(null);
-    } else if (lightbox !== null && lightbox >= remaining.length) {
-      setLightbox(remaining.length - 1);
-    }
-  };
+    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const files = event.target.files;
+        if (!files) return;
 
-  const navLightbox = (dir: -1 | 1) => {
-    setLightbox(prev => {
-      if (prev === null) return null;
-      const next = prev + dir;
-      if (next < 0 || next >= photos.length) return prev;
-      return next;
-    });
-  };
+        for (let i = 0; i < files.length; i++) {
+            await processAndAddFile(files[i]);
+        }
 
-  return (
-    <div>
-      {/* Upload buttons */}
-      <div className="flex gap-2 mb-3">
-        {/* Camera: label wraps the input directly so the tap-to-open-camera
-            gesture is native, not a programmatic .click() — required by
-            iOS Safari for the camera picker to appear reliably. */}
-        <label
-          className={`btn btn-ghost text-xs flex-1 ${processing ? 'opacity-50 pointer-events-none' : ''}`}
-          style={{ cursor: processing ? 'default' : 'pointer' }}
-        >
-          {processing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" style={{ color: 'var(--green)' }} />}
-          Camera
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            style={hiddenInputStyle}
-            disabled={processing}
-            onChange={e => handleFiles(e.target.files, e.target, 'camera')}
-          />
-        </label>
+        // Reset input so the same file can be selected again if needed
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
 
-        {/* Gallery: multi-select, no capture attribute */}
-        <label
-          className={`btn btn-ghost text-xs flex-1 ${processing ? 'opacity-50 pointer-events-none' : ''}`}
-          style={{ cursor: processing ? 'default' : 'pointer' }}
-        >
-          {processing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Image className="w-3.5 h-3.5" style={{ color: '#60a5fa' }} />}
-          Gallery
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            style={hiddenInputStyle}
-            disabled={processing}
-            onChange={e => handleFiles(e.target.files, e.target, 'gallery')}
-          />
-        </label>
-      </div>
-
-      {/* Processing placeholders */}
-      {processing && (
-        <div className="grid grid-cols-3 gap-2 mb-3">
-          {[0, 1, 2].map(i => (
-            <div key={i} className="skeleton rounded-lg" style={{ aspectRatio: '1', animationDelay: `${i * 0.1}s` }} />
-          ))}
-        </div>
-      )}
-
-      {/* Photo grid */}
-      {photos.length > 0 && (
-        <div className="grid grid-cols-3 gap-2">
-          {photos.map((photo, idx) => (
-            <div key={photo.id} className="relative group rounded-lg overflow-hidden" style={{ aspectRatio: '1' }}>
-              <img
-                src={photo.thumb || photo.dataUrl}
-                alt={photo.name}
-                className="photo-thumb w-full h-full cursor-pointer"
-                onClick={() => setLightbox(idx)}
-                loading="lazy"
-              />
-              {/* Overlay */}
-              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center gap-1.5 opacity-0 group-hover:opacity-100">
+    return (
+        <div className="space-y-4">
+            {/* Action Buttons */}
+            <div className="flex gap-4">
+                {/* Opens the custom in-page camera instead of native capture */}
                 <button
-                  onClick={() => setLightbox(idx)}
-                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors cursor-pointer"
+                    onClick={() => setShowCamera(true)}
+                    className="flex-1 flex items-center justify-center gap-2 py-3 px-4 bg-[#00FF87] text-black rounded-lg font-bold hover:bg-[#00cc6a] active:scale-95 transition-all"
                 >
-                  <Maximize2 className="w-3.5 h-3.5 text-white" />
+                    <Camera className="w-5 h-5" />
+                    Camera
                 </button>
+
+                {/* Opens native gallery selector */}
                 <button
-                  onClick={() => deletePhoto(photo.id)}
-                  className="p-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/40 transition-colors cursor-pointer"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex-1 flex items-center justify-center gap-2 py-3 px-4 bg-gray-800 text-white border border-gray-700 rounded-lg font-medium hover:bg-gray-700 active:scale-95 transition-all"
                 >
-                  <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                    <ImageIcon className="w-5 h-5" />
+                    Gallery
                 </button>
-              </div>
-              {/* Time badge */}
-              <div className="absolute bottom-1 left-1 text-[8px] font-mono px-1.5 py-0.5 rounded" style={{ background: 'rgba(0,0,0,0.7)', color: 'rgba(255,255,255,0.7)' }}>
-                {photo.capturedAt}
-              </div>
+
+                <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileUpload}
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                />
             </div>
-          ))}
+
+            {/* Photo Grid */}
+            {photos.length > 0 ? (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {photos.map((photo) => (
+                        <div
+                            key={photo.id}
+                            className="relative aspect-square group rounded-lg overflow-hidden border border-gray-700 bg-gray-900"
+                        >
+                            <img
+                                src={photo.dataUrl}
+                                alt="Property documentation"
+                                className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                                onClick={() => setLightboxImage(photo.dataUrl)}
+                            />
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onRemovePhoto(photo.id);
+                                }}
+                                className="absolute top-2 right-2 p-2 bg-red-600/90 text-white rounded-md shadow-lg opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity hover:bg-red-500"
+                                aria-label="Delete photo"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="py-8 text-center text-gray-500 border-2 border-dashed border-gray-800 rounded-lg bg-gray-900/50">
+                    No photos attached to this item yet.
+                </div>
+            )}
+
+            {/* In-Page Camera Modal */}
+            {showCamera && (
+                <CameraCapture
+                    onClose={() => setShowCamera(false)}
+                    onCapture={(file) => {
+                        processAndAddFile(file);
+                        // Notice: We do NOT close the camera here. 
+                        // This allows the inspector to rapidly snap multiple photos!
+                    }}
+                />
+            )}
+
+            {/* Lightbox Modal for Fullscreen Viewing */}
+            {lightboxImage && (
+                <div
+                    className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm"
+                    onClick={() => setLightboxImage(null)}
+                >
+                    <button
+                        className="absolute top-4 right-4 p-3 text-white bg-gray-800/80 rounded-full hover:bg-gray-700 z-[210]"
+                        onClick={() => setLightboxImage(null)}
+                        aria-label="Close fullscreen"
+                    >
+                        <X className="w-6 h-6" />
+                    </button>
+                    <img
+                        src={lightboxImage}
+                        alt="Enlarged property view"
+                        className="max-w-full max-h-[90vh] object-contain rounded-md"
+                        onClick={(e) => e.stopPropagation()} // Prevent clicking image from closing lightbox
+                    />
+                </div>
+            )}
         </div>
-      )}
-
-      {/* Lightbox */}
-      {lightbox !== null && photos[lightbox] && (
-        <div
-          className="fixed inset-0 z-[200] flex items-center justify-center"
-          style={{ background: 'rgba(0,0,0,0.95)' }}
-          onClick={e => { if (e.target === e.currentTarget) setLightbox(null); }}
-        >
-          <button onClick={() => setLightbox(null)} className="absolute top-4 right-4 p-2 rounded-xl bg-white/10 hover:bg-white/20 transition-colors cursor-pointer z-10">
-            <X className="w-5 h-5 text-white" />
-          </button>
-
-          {lightbox > 0 && (
-            <button onClick={() => navLightbox(-1)} className="absolute left-4 p-2 rounded-xl bg-white/10 hover:bg-white/20 cursor-pointer z-10">
-              <ChevronLeft className="w-5 h-5 text-white" />
-            </button>
-          )}
-          {lightbox < photos.length - 1 && (
-            <button onClick={() => navLightbox(1)} className="absolute right-4 p-2 rounded-xl bg-white/10 hover:bg-white/20 cursor-pointer z-10">
-              <ChevronRight className="w-5 h-5 text-white" />
-            </button>
-          )}
-
-          <div className="flex flex-col items-center gap-3 max-w-2xl w-full px-4">
-            <img
-              src={photos[lightbox].dataUrl}
-              alt={photos[lightbox].name}
-              className="max-h-[75vh] rounded-xl object-contain shadow-2xl"
-              style={{ maxWidth: '100%' }}
-            />
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-white/60 font-mono">{photos[lightbox].capturedAt}</span>
-              <span className="text-white/30">·</span>
-              <span className="text-xs text-white/60 font-mono">{lightbox + 1} / {photos.length}</span>
-              <span className="text-white/30">·</span>
-              <button
-                onClick={() => deletePhoto(photos[lightbox].id, true)}
-                className="btn btn-danger text-xs py-1"
-              >
-                <Trash2 className="w-3 h-3" /> Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {photos.length === 0 && !processing && (
-        <p className="text-center text-[11px] py-4" style={{ color: 'var(--text-muted)' }}>
-          No photos yet — use Camera or Gallery above
-        </p>
-      )}
-    </div>
-  );
+    );
 }
