@@ -1,44 +1,39 @@
-﻿export interface ChecklistItem {
-  id: string;
-  label: string;
-  checked: boolean;
-  category: string;
-}
-
-export interface FieldNote {
-  id: string;
-  text: string;
-  timestamp: string;
-  ts: number;
-}
-
-export interface PhotoEntry {
-  id: string;
-  dataUrl: string;
-  thumb: string;
-  name: string;
-  size: number;
-  capturedAt: string;
-  ts: number;
+﻿export interface PhotoEntry {
+    id: string;
+    dataUrl: string;
+    timestamp: number;
 }
 
 export interface PropertyStop {
-  id: string;
-  address: string;
-  workOrderId: string;
-  status: 'pending' | 'in-progress' | 'complete';
-  checklist: ChecklistItem[];
-  notes: FieldNote[];
-  photos: PhotoEntry[];
-  startedAt: string | null;
-  completedAt: string | null;
-  createdAt: string;
+    id: string;
+    address: string;
+    workOrderId: string;
+    status: 'pending' | 'started' | 'completed';
+
+    // PMCRO Lifecycle fields
+    phase?: 'PLAN' | 'MAKE' | 'CHECK' | 'REFLECT';
+    earned_constraints?: string[];
+
+    checklist: Record<string, boolean>;
+    notes: string[];
+    photos: PhotoEntry[];
+    startedAt: string | null;
+    completedAt: string | null;
+    createdAt: string;
 }
 
-export type SyncState = 'idle' | 'saving' | 'saved';
+export interface IdentityInjection {
+    inspector_name: string;
+    role: string;
+    company: string;
+}
 
-export interface WalkthroughState {
-  stops: PropertyStop[];
-  inspector: string;
-  version: string;
+export interface TemporalOrchestrator {
+    runtime: {
+        version: string;
+        trail_id: string;
+        date: string;
+    };
+    identity: IdentityInjection;
+    frames: PropertyStop[];
 }
