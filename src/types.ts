@@ -1,44 +1,39 @@
-﻿export interface ChecklistItem {
-  id: string;
-  label: string;
-  checked: boolean;
-  category: string;
+﻿export interface PhotoEntry {
+    id: string;
+    dataUrl: string;
+    timestamp: number;
 }
 
-export interface FieldNote {
-  id: string;
-  text: string;
-  timestamp: string;
-  ts: number;
+export type PhaseType = 'PLAN' | 'MAKE' | 'CHECK' | 'REFLECT' | 'ORCHESTRATE';
+export type StatusType = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'ESCALATED';
+
+export interface Frame {
+    frame_id: string;
+    property_address: string;
+    scheduled_time: string;
+    phase: PhaseType;
+    status: StatusType;
+    earned_constraints: string[];
+    notes: string;
+
+    // App-specific field data
+    checklist: Record<string, boolean>;
+    photos: PhotoEntry[];
+    fieldNotes: string;
 }
 
-export interface PhotoEntry {
-  id: string;
-  dataUrl: string;
-  thumb: string;
-  name: string;
-  size: number;
-  capturedAt: string;
-  ts: number;
+export interface IdentityInjection {
+    inspector_name: string;
+    role: string;
+    company: string;
 }
 
-export interface PropertyStop {
-  id: string;
-  address: string;
-  workOrderId: string;
-  status: 'pending' | 'in-progress' | 'complete';
-  checklist: ChecklistItem[];
-  notes: FieldNote[];
-  photos: PhotoEntry[];
-  startedAt: string | null;
-  completedAt: string | null;
-  createdAt: string;
-}
-
-export type SyncState = 'idle' | 'saving' | 'saved';
-
-export interface WalkthroughState {
-  stops: PropertyStop[];
-  inspector: string;
-  version: string;
+export interface TemporalOrchestrator {
+    runtime: {
+        version: string;
+        trail_id: string;
+        date: string;
+    };
+    identity: IdentityInjection;
+    frames: Frame[];
 }
