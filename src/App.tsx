@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { PropertyStop } from './types';
 import { defaultStops } from './data';
 import { decodeWalkthroughState } from './utils';
+import { savePhotos, loadAllPhotos, deletePhotos } from './photoStorage';
 import HeaderBar from './components/HeaderBar';
 import SummaryStats from './components/SummaryStats';
 import PropertyCard from './components/PropertyCard';
@@ -23,23 +24,25 @@ import {
 const STORAGE_KEY_STOPS = 'tooensure_walkthrough_stops';
 const STORAGE_KEY_INSPECTOR = 'tooensure_walkthrough_inspector';
 
+/** Strip photos from stops before saving to localStorage — photos live in IndexedDB */
+function stopsWithoutPhotos(stops: PropertyStop[]): PropertyStop[] {
+  return stops.map(s => ({ ...s, photos: [] }));
+}
+
 export default function App() {
   const [stops, setStops] = useState<PropertyStop[]>([]);
+  const [photosLoaded, setPhotosLoaded] = useState(false);
   const [inspectorName, setInspectorName] = useState('Shawn');
   const [isAddStopOpen, setIsAddStopOpen] = useState(false);
   const [activeFilter, setActiveFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // URL Share incoming state management
   const [sharedState, setSharedState] = useState<{ stops: PropertyStop[]; inspector: string } | null>(null);
   const [showSharedNotice, setShowSharedNotice] = useState(false);
 
-  // 1. Initial Load
+  // 1. Initial load — stops from localStorage, photos from IndexedDB
   useEffect(() => {
-    // A. Check for shared state in URL first
     const params = new URLSearchParams(window.location.search);
     const sharedParam = params.get('state');
-    
     if (sharedParam) {
       const decoded = decodeWalkthroughState(sharedParam);
       if (decoded && decoded.stops && decoded.stops.length > 0) {
@@ -48,47 +51,52 @@ export default function App() {
       }
     }
 
-    // B. Load active local session
     const localStops = localStorage.getItem(STORAGE_KEY_STOPS);
     const localInspector = localStorage.getItem(STORAGE_KEY_INSPECTOR);
+    if (localInspector) setInspectorName(localInspector);
 
-    if (localStops) {
-      try {
-        setStops(JSON.parse(localStops));
-      } catch (err) {
-        setStops(defaultStops);
-      }
-    } else {
-      setStops(defaultStops);
+    let baseStops: PropertyStop[];
+    try {
+      baseStops = localStops ? JSON.parse(localStops) : defaultStops;
+    } catch {
+      baseStops = defaultStops;
     }
 
-    if (localInspector) {
-      setInspectorName(localInspector);
-    }
+    // Hydrate photos from IndexedDB
+    const stopIds = baseStops.map(s => s.id);
+    loadAllPhotos(stopIds).then(photoMap => {
+      const hydrated = baseStops.map(s => ({
+        ...s,
+        photos: photoMap[s.id] ?? [],
+      }));
+      setStops(hydrated);
+      setPhotosLoaded(true);
+    });
   }, []);
 
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'synced'>('synced');
   const [lastSyncTime, setLastSyncTime] = useState('Active');
 
-  // Trigger simulated GitHub push synchronization as soon as stops or inspector updates
   useEffect(() => {
-    if (stops.length === 0) return;
-
+    if (stops.length === 0 || !photosLoaded) return;
     setSyncState('syncing');
-
     const timer = setTimeout(() => {
       setSyncState('synced');
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       setLastSyncTime(timeStr);
     }, 1200);
-
     return () => clearTimeout(timer);
   }, [stops, inspectorName]);
 
-  // 2. Persistent saves across modifications
+  // 2. Save — checklist/notes to localStorage, photos to IndexedDB
   const saveStopsToStorage = (newStops: PropertyStop[]) => {
     setStops(newStops);
-    localStorage.setItem(STORAGE_KEY_STOPS, JSON.stringify(newStops));
+    // Save without photos to localStorage (avoid 5MB quota)
+    localStorage.setItem(STORAGE_KEY_STOPS, JSON.stringify(stopsWithoutPhotos(newStops)));
+    // Save each stop's photos to IndexedDB
+    newStops.forEach(stop => {
+      savePhotos(stop.id, stop.photos);
+    });
   };
 
   const handleUpdateInspector = (name: string) => {
@@ -96,7 +104,6 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY_INSPECTOR, name);
   };
 
-  // 3. User operations handlers
   const handleUpdateStop = (updatedStop: PropertyStop) => {
     const updated = stops.map(s => s.id === updatedStop.id ? updatedStop : s);
     saveStopsToStorage(updated);
@@ -104,6 +111,7 @@ export default function App() {
 
   const handleDeleteStop = (stopId: string) => {
     const updated = stops.filter(s => s.id !== stopId);
+    deletePhotos(stopId);
     saveStopsToStorage(updated);
   };
 
@@ -113,21 +121,20 @@ export default function App() {
   };
 
   const handleResetWalk = () => {
-    // Empty local Storage & reload defaults
     localStorage.removeItem(STORAGE_KEY_STOPS);
+    // Clear photos for all current stops
+    stops.forEach(s => deletePhotos(s.id));
     setStops(defaultStops);
     setSearchQuery('');
     setActiveFilter('all');
   };
 
-  // 4. Shared State Operations
   const handleImportSharedState = () => {
     if (sharedState) {
       saveStopsToStorage(sharedState.stops);
       handleUpdateInspector(sharedState.inspector);
       setShowSharedNotice(false);
       setSharedState(null);
-      // Clean query parameter from URL to prevent infinite loading notices
       window.history.pushState({}, document.title, window.location.pathname);
     }
   };
@@ -138,35 +145,27 @@ export default function App() {
     window.history.pushState({}, document.title, window.location.pathname);
   };
 
-  // 5. Query Searching and Filtering
   const filteredStops = stops.filter((stop) => {
-    // A. Apply standard priority filters
-    if (activeFilter === 'high' && stop.priority !== 'high') {
-      return false;
-    }
+    if (activeFilter === 'high' && stop.priority !== 'high') return false;
     if (activeFilter === 'incomplete') {
       const isCompleted = stop.items.length > 0 && stop.items.every(i => i.checked);
       if (isCompleted) return false;
     }
-
-    // B. Search Query filter (address, priority or tag keyword matches)
     if (searchQuery.trim() !== '') {
       const query = searchQuery.toLowerCase();
-      const matchAddress = stop.address.toLowerCase().includes(query);
-      const matchCity = stop.cityStateZip.toLowerCase().includes(query);
-      const matchTag = stop.tag.toLowerCase().includes(query);
-      const matchInspector = (stop.inspectorName || '').toLowerCase().includes(query);
-      
-      return matchAddress || matchCity || matchTag || matchInspector;
+      return (
+        stop.address.toLowerCase().includes(query) ||
+        stop.cityStateZip.toLowerCase().includes(query) ||
+        stop.tag.toLowerCase().includes(query) ||
+        (stop.inspectorName || '').toLowerCase().includes(query)
+      );
     }
-
     return true;
   });
 
   return (
     <div className="min-h-screen bg-[#0a0a0b] text-[#e2e8f0] flex flex-col selection:bg-emerald-500 selection:text-black font-sans pb-12">
       
-      {/* Shared Walk Import banner */}
       {showSharedNotice && sharedState && (
         <div className="bg-[#0f0f12] border-b border-emerald-500/30 p-4 sticky top-0 z-50 backdrop-blur-md text-white shadow-2xl">
           <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -203,7 +202,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Corporate sticky header */}
       <HeaderBar 
         stops={stops}
         inspectorName={inspectorName}
@@ -214,17 +212,14 @@ export default function App() {
         lastSyncTime={lastSyncTime}
       />
 
-      {/* Main Container */}
       <main className="max-w-7xl mx-auto px-4 md:px-8 mt-6 flex-grow w-full">
         
-        {/* Dynamic Aggregations Cards */}
         <SummaryStats 
           stops={stops}
           activeFilter={activeFilter}
           setActiveFilter={setActiveFilter}
         />
 
-        {/* Action Panel: Search Filter bar */}
         <div className="glass-panel p-4 rounded-xl mb-6 flex flex-col sm:flex-row items-center gap-4 border-white/10 shadow-lg select-none">
           <div className="relative w-full sm:w-80">
             <Search className="w-4 h-4 text-emerald-500 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -265,7 +260,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Property cards dynamic container stack */}
         {filteredStops.length > 0 ? (
           <div className="space-y-6">
             {filteredStops.map((stop) => (
@@ -305,14 +299,13 @@ export default function App() {
 
       </main>
 
-      {/* Add stop custom drawer dialog overlay */}
       <AddStopDialog 
         isOpen={isAddStopOpen}
         onAddStop={handleAddStop}
         onClose={() => setIsAddStopOpen(false)}
       />
 
-      {/* Mobile bottom-centered real-time auto-sync status toast */}
+      {/* Syncing toast */}
       <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 transform w-[90%] max-w-sm px-4 ${
         syncState === 'syncing' ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0 pointer-events-none'
       }`}>
@@ -320,14 +313,15 @@ export default function App() {
           <div className="flex items-center gap-2.5 min-w-0">
             <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400 flex-shrink-0" />
             <div className="flex flex-col min-w-0">
-              <span className="text-[9px] text-cyan-500 font-bold uppercase tracking-wider leading-none">GitHub Push Agent</span>
-              <p className="text-white text-[11px] truncate mt-0.5 font-medium leading-tight">Syncing edits with Property-Preservation...</p>
+              <span className="text-[9px] text-cyan-500 font-bold uppercase tracking-wider leading-none">Saving locally</span>
+              <p className="text-white text-[11px] truncate mt-0.5 font-medium leading-tight">Saving walkthrough data...</p>
             </div>
           </div>
-          <span className="text-[10px] bg-cyan-950/80 border border-cyan-500/20 px-1.5 py-0.5 rounded text-cyan-400 font-mono">PUSHING</span>
+          <span className="text-[10px] bg-cyan-950/80 border border-cyan-500/20 px-1.5 py-0.5 rounded text-cyan-400 font-mono">SAVING</span>
         </div>
       </div>
 
+      {/* Saved toast */}
       <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 transform w-[90%] max-w-sm px-4 ${
         syncState === 'synced' && lastSyncTime !== 'Active' ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0 pointer-events-none'
       }`}>
@@ -335,8 +329,8 @@ export default function App() {
           <div className="flex items-center gap-2.5 min-w-0">
             <CheckCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
             <div className="flex flex-col min-w-0">
-              <span className="text-[9px] text-emerald-500 font-bold uppercase tracking-wider leading-none">GitHub push complete</span>
-              <p className="text-white text-[11px] truncate mt-0.5 font-medium leading-tight">Property-Preservation synced</p>
+              <span className="text-[9px] text-emerald-500 font-bold uppercase tracking-wider leading-none">Saved to device</span>
+              <p className="text-white text-[11px] truncate mt-0.5 font-medium leading-tight">Photos + data saved locally</p>
             </div>
           </div>
           <span className="text-[10px] bg-emerald-950/80 border border-emerald-500/20 px-1.5 py-0.5 rounded text-emerald-400 font-mono">{lastSyncTime}</span>
