@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { PhotoEntry } from '../types';
 import { compressPhoto, isLikelyImage } from '../lib/photoStorage';
 import { Camera, Image, Trash2, Loader2, Maximize2, X, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -9,13 +9,28 @@ interface Props {
   toast: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
 
+// Visually hide an <input type="file"> without using display:none —
+// iOS Safari can refuse to open the camera picker for inputs that are
+// display:none (or triggered only via a programmatic .click() on a ref).
+// Keeping the input on-screen (just visually invisible) and wrapping it
+// in a <label> is the reliable cross-browser pattern.
+const hiddenInputStyle: React.CSSProperties = {
+  position: 'absolute',
+  width: '1px',
+  height: '1px',
+  padding: 0,
+  margin: '-1px',
+  overflow: 'hidden',
+  clip: 'rect(0,0,0,0)',
+  whiteSpace: 'nowrap',
+  border: 0,
+};
+
 export default function PhotoGrid({ photos, onPhotosChange, toast }: Props) {
-  const cameraRef = useRef<HTMLInputElement>(null);
-  const galleryRef = useRef<HTMLInputElement>(null);
   const [processing, setProcessing] = useState(false);
   const [lightbox, setLightbox] = useState<number | null>(null);
 
-  const handleFiles = async (files: FileList | null) => {
+  const handleFiles = async (files: FileList | null, inputEl?: HTMLInputElement | null) => {
     if (!files || !files.length) return;
     setProcessing(true);
     try {
@@ -45,8 +60,7 @@ export default function PhotoGrid({ photos, onPhotosChange, toast }: Props) {
       toast('Photo processing failed', 'error');
     } finally {
       setProcessing(false);
-      if (cameraRef.current) cameraRef.current.value = '';
-      if (galleryRef.current) galleryRef.current.value = '';
+      if (inputEl) inputEl.value = '';
     }
   };
 
@@ -73,45 +87,41 @@ export default function PhotoGrid({ photos, onPhotosChange, toast }: Props) {
     <div>
       {/* Upload buttons */}
       <div className="flex gap-2 mb-3">
-        <button
-          type="button"
-          onClick={() => cameraRef.current?.click()}
-          disabled={processing}
-          className="btn btn-ghost text-xs flex-1 disabled:opacity-50"
+        {/* Camera: label wraps the input directly so the tap-to-open-camera
+            gesture is native, not a programmatic .click() — required by
+            iOS Safari for the camera picker to appear reliably. */}
+        <label
+          className={`btn btn-ghost text-xs flex-1 ${processing ? 'opacity-50 pointer-events-none' : ''}`}
+          style={{ cursor: processing ? 'default' : 'pointer' }}
         >
           {processing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" style={{ color: 'var(--green)' }} />}
           Camera
-        </button>
-        <button
-          type="button"
-          onClick={() => galleryRef.current?.click()}
-          disabled={processing}
-          className="btn btn-ghost text-xs flex-1 disabled:opacity-50"
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            style={hiddenInputStyle}
+            disabled={processing}
+            onChange={e => handleFiles(e.target.files, e.target)}
+          />
+        </label>
+
+        {/* Gallery: multi-select, no capture attribute */}
+        <label
+          className={`btn btn-ghost text-xs flex-1 ${processing ? 'opacity-50 pointer-events-none' : ''}`}
+          style={{ cursor: processing ? 'default' : 'pointer' }}
         >
           {processing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Image className="w-3.5 h-3.5" style={{ color: '#60a5fa' }} />}
           Gallery
-        </button>
-
-        {/* Camera input: single-shot capture. `multiple` is intentionally omitted —
-            combined with `capture`, it causes many mobile browsers (esp. iOS Safari)
-            to silently ignore the camera launch or fall back to the gallery picker. */}
-        <input
-          ref={cameraRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={e => handleFiles(e.target.files)}
-        />
-        {/* Gallery input: allows multi-select, no capture attribute */}
-        <input
-          ref={galleryRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={e => handleFiles(e.target.files)}
-        />
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            style={hiddenInputStyle}
+            disabled={processing}
+            onChange={e => handleFiles(e.target.files, e.target)}
+          />
+        </label>
       </div>
 
       {/* Processing placeholders */}
