@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { PhotoEntry } from '../types';
 import { compressPhoto } from '../lib/photoStorage';
 import { Camera, Image, Trash2, Loader2, Maximize2, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import CameraCapture from './CameraCapture';
 
 interface Props {
   photos: PhotoEntry[];
@@ -10,10 +11,10 @@ interface Props {
 }
 
 export default function PhotoGrid({ photos, onPhotosChange, toast }: Props) {
-  const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
   const [processing, setProcessing] = useState(false);
   const [lightbox, setLightbox] = useState<number | null>(null);
+  const [showCamera, setShowCamera] = useState(false);
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || !files.length) return;
@@ -63,7 +64,7 @@ export default function PhotoGrid({ photos, onPhotosChange, toast }: Props) {
       {/* Upload buttons */}
       <div className="flex gap-2 mb-3">
         <button
-          onClick={() => cameraRef.current?.click()}
+          onClick={() => setShowCamera(true)}
           disabled={processing}
           className="btn btn-ghost text-xs flex-1 disabled:opacity-50"
         >
@@ -79,7 +80,6 @@ export default function PhotoGrid({ photos, onPhotosChange, toast }: Props) {
           Gallery
         </button>
 
-        <input ref={cameraRef} type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={e => handleFiles(e.target.files)} />
         <input ref={galleryRef} type="file" accept="image/*" multiple className="hidden" onChange={e => handleFiles(e.target.files)} />
       </div>
 
@@ -175,8 +175,26 @@ export default function PhotoGrid({ photos, onPhotosChange, toast }: Props) {
 
       {photos.length === 0 && !processing && (
         <p className="text-center text-[11px] py-4" style={{ color: 'var(--text-muted)' }}>
-          No photos yet — use Camera or Gallery above
+          No photos yet - use Camera or Gallery above
         </p>
+      )}
+
+      {showCamera && (
+        <CameraCapture
+          onClose={() => setShowCamera(false)}
+          onCapture={async (file) => {
+            setProcessing(true);
+            try {
+              const entry = await compressPhoto(file);
+              onPhotosChange([...photos, entry]);
+              toast('Photo added', 'success');
+            } catch {
+              toast('Photo processing failed', 'error');
+            } finally {
+              setProcessing(false);
+            }
+          }}
+        />
       )}
     </div>
   );
